@@ -65,7 +65,7 @@ app.get('/', (req, res) => {
 app.post('/', (req, res) => {
   // Simulate restart request (Render free tier doesn't support API restarts)
   console.log('Restart request received');
-  res.status(202).json({ message: 'Restart requested' });
+  res.status(202).json({ message: 'Service is already running' });
 });
 
 // Health check route
