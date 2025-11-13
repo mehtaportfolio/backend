@@ -30,27 +30,19 @@ const allowedOrigins = rawCorsOrigins
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
-console.log("🧩 CORS_ORIGIN from env:", process.env.CORS_ORIGIN);
-console.log("🧩 Allowed Origins Array:", allowedOrigins);
-
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (mobile apps, curl, Postman)
-      if (!origin) {
-        return callback(null, true);
-      }
-
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-
+      if (!origin) return callback(null, true);
+      const match = allowedOrigins.some((o) => origin.startsWith(o));
+      if (match) return callback(null, true);
       return callback(new Error(`Not allowed by CORS: ${origin}`));
     },
     credentials: true,
   })
 );
+
 app.use(express.json());
 
 // Logging middleware
