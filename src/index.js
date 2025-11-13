@@ -5,7 +5,7 @@ import { dirname, join } from 'path';
 
 // Resolve .env.backend path (one level up from src/)
 const envPath = join(dirname(fileURLToPath(import.meta.url)), '..', '.env.backend');
-dotenv.config({ path: envPath });
+dotenv.config({ path: envPath, override: false });
 
 // Debug check – ensure .env loaded
 console.log('✅ Loaded SUPABASE_URL:', process.env.SUPABASE_URL || '❌ Missing');
@@ -30,6 +30,9 @@ const allowedOrigins = rawCorsOrigins
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
+console.log("🧩 CORS_ORIGIN from env:", process.env.CORS_ORIGIN);
+console.log("🧩 Allowed Origins Array:", allowedOrigins);
+
 
 app.use(
   cors({
