@@ -21,6 +21,7 @@ import cacheMiddleware from './middleware/cache.js';
 // -------------------------------------------------------------
 // Initialize Express app
 const app = express();
+app.use(cors({ origin: "*", methods: ["GET", "POST"] }));
 const PORT = process.env.PORT || 3001;
 
 // -------------------------------------------------------------
@@ -66,6 +67,10 @@ app.post('/', (req, res) => {
 // Health check route
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+app.post("/restart", (req, res) => {
+  res.json({ status: "info", message: "Service is running. Server restart not required." });
 });
 
 // -------------------------------------------------------------

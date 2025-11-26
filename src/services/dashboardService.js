@@ -91,15 +91,14 @@ export async function getDashboardAssetAllocation(supabase, userId) {
 
     // Calculate total invested value
     let totalInvestedValue = stockData.stock.invested + stockData.etf.invested + mfData.invested + bankData.total + (ppfData.invested || 0) + epfData.invested + npsData.invested + fdData.invested;
-    totalInvestedValue -= totalEquityCharges;
 
     // Build asset rows
     const rows = [
       {
         assetType: 'Stock',
         marketValue: stockData.stock.marketValue,
-        investedValue: stockData.stock.invested - totalEquityCharges,
-        simpleProfit: stockData.stock.marketValue - (stockData.stock.invested - totalEquityCharges),
+        investedValue: stockData.stock.invested,
+        simpleProfit: stockData.stock.marketValue - stockData.stock.invested,
       },
       {
         assetType: 'ETF',
@@ -173,6 +172,8 @@ export async function getDashboardAssetAllocation(supabase, userId) {
     return {
       rows: enrichedRows,
       summary,
+      bankSavings: bankData.savings,
+      bankDemat: bankData.demat,
       timestamp: new Date().toISOString(),
     };
   } catch (error) {
