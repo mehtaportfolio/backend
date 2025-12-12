@@ -46,7 +46,7 @@ export async function getBankData() {
         };
       }
 
-      // Group by month
+      // Group by month - SUM all amounts for the same key
       const dateStr = typeof txn.txn_date === 'string' ? txn.txn_date : txn.txn_date?.toISOString?.() || '';
       const ym = dateStr.slice(0, 7);
       if (!groupedByMonth[ym]) groupedByMonth[ym] = {};
@@ -55,6 +55,9 @@ export async function getBankData() {
           ...txn,
           amount: toNumber(txn.amount),
         };
+      } else {
+        // Accumulate amounts for duplicate keys in the same month
+        groupedByMonth[ym][key].amount += toNumber(txn.amount);
       }
     });
 
