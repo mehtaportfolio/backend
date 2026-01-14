@@ -35,7 +35,7 @@ const allowedOrigins = rawCorsOrigins
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
+      if (!origin || origin.includes('localhost') || origin.includes('127.0.0.1')) return callback(null, true);
       const match = allowedOrigins.some((o) => origin.startsWith(o));
       if (match) return callback(null, true);
       return callback(new Error(`Not allowed by CORS: ${origin}`));

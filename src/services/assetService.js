@@ -350,15 +350,18 @@ export async function getEPFData() {
  */
 export async function getPPFData() {
   try {
+    console.log('[AssetService] Fetching PPF data...');
     const { data, error } = await supabase
       .from('ppf_transactions')
       .select('id, account_name, txn_date, amount, transaction_type, account_type')
       .order('txn_date', { ascending: true });
 
     if (error) {
-      console.error('PPF data fetch error:', error);
+      console.error('[AssetService] PPF data fetch error:', error);
       throw error;
     }
+
+    console.log(`[AssetService] Fetched ${data?.length || 0} PPF transactions`);
 
     // Group by account
     const byAccount = {};
