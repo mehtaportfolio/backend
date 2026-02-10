@@ -11,6 +11,11 @@ if (publicVapidKey && privateVapidKey && vapidEmail) {
   webpush.setVapidDetails(vapidEmail, publicVapidKey, privateVapidKey);
 }
 
+const toNumber = (val) => {
+  const n = parseFloat(val);
+  return isFinite(n) ? n : 0;
+};
+
 /**
  * Check if current time is within Indian Market Hours (9:15 AM - 3:30 PM IST)
  * @returns {boolean}
@@ -92,16 +97,16 @@ export async function triggerPortfolioUpdate(force = false) {
 
     // Equity Active
     summary.equityActive.forEach(item => {
-      totalMarketValue += item.market_value;
-      totalInvested += item.invested_amount;
-      totalDayChange += item.day_change;
+      totalMarketValue += toNumber(item.market_value);
+      totalInvested += toNumber(item.invested_amount);
+      totalDayChange += toNumber(item.day_change);
     });
 
     // Mutual Funds Active
     summary.mfActive.forEach(item => {
-      totalMarketValue += item.marketValue;
-      totalInvested += item.investedValue;
-      totalDayChange += item.dayChange;
+      totalMarketValue += toNumber(item.marketValue);
+      totalInvested += toNumber(item.investedValue);
+      totalDayChange += toNumber(item.dayChange);
     });
 
     const totalProfit = totalMarketValue - totalInvested;
@@ -112,7 +117,7 @@ export async function triggerPortfolioUpdate(force = false) {
 
     const payload = {
       title: 'Portfolio Update',
-      body: `Value: ₹${totalMarketValue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}\nProfit: ₹${totalProfit.toLocaleString('en-IN', { maximumFractionDigits: 0 })} (${profitPercent.toFixed(2)}%)\nDay: ₹${totalDayChange.toLocaleString('en-IN', { maximumFractionDigits: 0 })} (${dayChangePercent.toFixed(2)}%)`,
+      body: `Profit: ₹${totalProfit.toLocaleString('en-IN', { maximumFractionDigits: 0 })} (${profitPercent.toFixed(2)}%)\nDay: ₹${totalDayChange.toLocaleString('en-IN', { maximumFractionDigits: 0 })} (${dayChangePercent.toFixed(2)}%)`,
       icon: '/mainphoto.png',
       badge: '/logo192.png',
       data: {
