@@ -1066,7 +1066,7 @@ export async function getAnalysisFreeStocks(userId = 'all') {
   try {
     let [{ data: stockTxns }, { data: stockMaster }] = await Promise.all([
       fetchAllRows(supabase, 'stock_transactions', {
-        select: 'stock_name, quantity, buy_price, sell_date, account_name, account_type, buy_date',
+        select: 'id, stock_name, quantity, buy_price, sell_date, account_name, account_type, buy_date',
         filters: userId !== 'all' ? [(q) => q.in('account_name', Array.isArray(userId) ? userId : [userId])] : []
       }),
       fetchAllRows(supabase, 'stock_master', {
@@ -1086,7 +1086,7 @@ export async function getAnalysisFreeStocks(userId = 'all') {
           const to = Math.min(from + pageSize - 1, totalCount - 1);
           const page = await supabase
             .from('stock_transactions')
-            .select('stock_name, quantity, buy_price, sell_date, account_name, account_type, buy_date')
+            .select('id, stock_name, quantity, buy_price, sell_date, account_name, account_type, buy_date')
             .range(from, to);
           all.push(...(page.data || []));
         }
@@ -1154,7 +1154,7 @@ export async function getAnalysisFreeStocks(userId = 'all') {
         }]);
 
         return {
-          id: index + 1,
+          id: txn.id,
           stock_name: txn.stock_name,
           buy_date: txn.buy_date,
           buy_price: buyPrice,
