@@ -29,7 +29,7 @@ router.get(
   async (req, res, next) => {
     try {
       // Use the primary accounts by default to match notification/portfolio logic
-      const userId = req.userId || req.query.userId || ['PM', 'PDM', 'PSM'];
+      const userId = req.userId || req.query.userId || ['PM', 'PDM', 'PSM', 'BDM'];
 
       const result = await getDashboardAssetAllocation(supabase, userId);
 
@@ -53,7 +53,7 @@ router.get(
   cacheMiddleware(CACHE_TTL),
   async (req, res, next) => {
     try {
-      const userId = req.userId || req.query.userId || ['PM', 'PDM', 'PSM'];
+      const userId = req.userId || req.query.userId || ['PM', 'PDM', 'PSM', 'BDM'];
 
       const summary = await getDashboardSummary(supabase, userId);
 

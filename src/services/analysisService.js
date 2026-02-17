@@ -1066,7 +1066,7 @@ export async function getAnalysisFreeStocks(userId = 'all') {
   try {
     let [{ data: stockTxns }, { data: stockMaster }] = await Promise.all([
       fetchAllRows(supabase, 'stock_transactions', {
-        select: 'id, stock_name, quantity, buy_price, sell_date, account_name, account_type, buy_date',
+        select: 'id, stock_name, quantity, buy_price, sell_date, account_name, account_type, buy_date, equity_type',
         filters: userId !== 'all' ? [(q) => q.in('account_name', Array.isArray(userId) ? userId : [userId])] : []
       }),
       fetchAllRows(supabase, 'stock_master', {
@@ -1086,7 +1086,7 @@ export async function getAnalysisFreeStocks(userId = 'all') {
           const to = Math.min(from + pageSize - 1, totalCount - 1);
           const page = await supabase
             .from('stock_transactions')
-            .select('id, stock_name, quantity, buy_price, sell_date, account_name, account_type, buy_date')
+            .select('id, stock_name, quantity, buy_price, sell_date, account_name, account_type, buy_date, equity_type')
             .range(from, to);
           all.push(...(page.data || []));
         }
@@ -1162,6 +1162,7 @@ export async function getAnalysisFreeStocks(userId = 'all') {
           amount: quantity * buyPrice,
           account_name: accountName,
           account_type: accountType,
+          equity_type: txn.equity_type || 'stocks',
           lotKey: `${accountType}::${txn.stock_name}::${accountName || 'Unknown'}`,
           xirr: xirrValue // Add XIRR to transaction object
         };
