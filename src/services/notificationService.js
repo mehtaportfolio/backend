@@ -124,7 +124,7 @@ export async function triggerPortfolioUpdate(force = false) {
         ? ((values.marketValue - values.invested) / values.invested) * 100 
         : 0;
       
-      if (combinedProfitPercent > 140) {
+      if (combinedProfitPercent > 170) {
         highProfitRegularStocks.push({
           stockName,
           profitPercent: combinedProfitPercent
