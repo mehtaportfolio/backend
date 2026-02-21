@@ -14,6 +14,7 @@ console.log('✅ Loaded SUPABASE_URL:', process.env.SUPABASE_URL || '❌ Missing
 // Import core dependencies (safe to import now)
 import express from 'express';
 import cors from 'cors';
+import axios from 'axios';
 import errorHandler from './middleware/errorHandler.js';
 import authMiddleware from './middleware/auth.js';
 import cacheMiddleware from './middleware/cache.js';
@@ -91,6 +92,76 @@ app.use('/api/stock', stockRoutes);
 app.use('/api/schemes', schemesRoutes);
 app.use('/api/cache', cacheRoutes);
 app.use('/api/notifications', notificationRoutes);
+
+// 🔹 Proxy endpoints for Angel One services
+app.get('/refresh-stocks', async (req, res) => {
+  try {
+    console.log('🔄 Calling Angel One refresh-stocks endpoint...');
+    const response = await axios.get('https://mehta-ao-prices.onrender.com/refresh-stocks', {
+      timeout: 30000
+    });
+    
+    console.log('✅ Angel One refresh-stocks response:', response.data);
+    res.json({
+      status: 'success',
+      message: response.data?.message || 'Angel One stock list refreshed successfully',
+      data: response.data
+    });
+  } catch (error) {
+    console.error('❌ Error calling Angel One refresh-stocks:', error.message);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to refresh Angel One stock list',
+      error: error.response?.data || error.message
+    });
+  }
+});
+
+app.post('/sync-cmp', async (req, res) => {
+  try {
+    console.log('🔄 Triggering CMP sync...');
+    const response = await axios.get('https://mehta-ao-prices.onrender.com/sync-cmp', {
+      timeout: 30000
+    });
+    
+    console.log('✅ CMP sync response:', response.data);
+    res.json({
+      status: 'success',
+      message: response.data?.message || 'CMP sync triggered successfully',
+      data: response.data
+    });
+  } catch (error) {
+    console.error('❌ Error calling CMP sync:', error.message);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to trigger CMP sync',
+      error: error.response?.data || error.message
+    });
+  }
+});
+
+app.post('/sync-lcp', async (req, res) => {
+  try {
+    console.log('🔄 Triggering LCP sync...');
+    const response = await axios.get('https://mehta-ao-prices.onrender.com/sync-lcp', {
+      timeout: 30000
+    });
+    
+    console.log('✅ LCP sync response:', response.data);
+    res.json({
+      status: 'success',
+      message: response.data?.message || 'LCP sync triggered successfully',
+      data: response.data
+    });
+  } catch (error) {
+    console.error('❌ Error calling LCP sync:', error.message);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to trigger LCP sync',
+      error: error.response?.data || error.message
+    });
+  }
+});
 
 // -------------------------------------------------------------
 // Error handler middleware
