@@ -204,21 +204,19 @@ const calculateXirr = (flows) => {
   return mid * 100;
 };
 
-export async function getAnalysisDashboard(userId = 'all') {
+export async function getAnalysisDashboard(userId = 'all', priceSource = 'stock_master') {
   try {
-    const [
-      { data: stockTxns },
-      { data: stockMaster },
-      { data: mfTxns },
-      { data: fundMaster },
-      { data: ppfTxns },
-      { data: epfTxns },
-      { data: npsTxns },
-    ] = await Promise.all([
+    const priceTable = priceSource === 'stock_mapping' ? 'stock_mapping' : 'stock_master';
+    console.log(`[Analysis] getAnalysisDashboard using priceSource: "${priceSource}", table: "${priceTable}"`);
+    
+    const fetchPromises = [
       fetchAllRows(supabase, 'stock_transactions', {
         select: 'stock_name, quantity, buy_price, sell_date, account_name, account_type, buy_date, equity_type',
         filters: userId !== 'all' ? [(q) => q.in('account_name', Array.isArray(userId) ? userId : [userId])] : []
       }),
+      fetchAllRows(supabase, priceTable !== 'stock_master' ? priceTable : null, {
+        select: 'stock_name, cmp',
+      }).catch(() => ({ data: [], error: null })),
       fetchAllRows(supabase, 'stock_master', {
         select: 'stock_name, cmp',
       }),
@@ -241,9 +239,39 @@ export async function getAnalysisDashboard(userId = 'all') {
         select: 'account_name, units, nav, transaction_type',
         filters: userId !== 'all' ? [(q) => q.in('account_name', Array.isArray(userId) ? userId : [userId])] : []
       }),
-    ]);
+    ];
 
-    const cmpMap = new Map((stockMaster || []).map((m) => [m.stock_name, toNumber(m.cmp)]));
+    const [
+      { data: stockTxns },
+      { data: priceData },
+      { data: stockMaster },
+      { data: mfTxns },
+      { data: fundMaster },
+      { data: ppfTxns },
+      { data: epfTxns },
+      { data: npsTxns },
+    ] = await Promise.all(fetchPromises);
+
+    // Build CMP map with fallback logic
+    const cmpMap = new Map();
+    (priceData || []).forEach((m) => {
+      cmpMap.set(m.stock_name, toNumber(m.cmp));
+    });
+    // For angel one (stock_mapping), fallback to stock_master if CMP is missing
+    if (priceTable === 'stock_mapping') {
+      (stockMaster || []).forEach((m) => {
+        if (!cmpMap.get(m.stock_name) || cmpMap.get(m.stock_name) === 0) {
+          cmpMap.set(m.stock_name, toNumber(m.cmp));
+        }
+      });
+    } else {
+      // If we're using stock_master directly, use it for CMP
+      (stockMaster || []).forEach((m) => {
+        if (!cmpMap.get(m.stock_name)) {
+          cmpMap.set(m.stock_name, toNumber(m.cmp));
+        }
+      });
+    }
     const fundCmpMap = new Map((fundMaster || []).map((f) => [f.fund_short_name, toNumber(f.cmp)]));
 
     // Account-wise aggregation
@@ -533,21 +561,22 @@ export async function getAnalysisDashboard(userId = 'all') {
   }
 }
 
-export async function getAnalysisSummary(userId = 'all') {
+export async function getAnalysisSummary(userId = 'all', priceSource = 'stock_master') {
   try {
-    const [
-      { data: stockTxns, error: stockError },
-      { data: stockMaster, error: stockMasterError },
-      { data: mfTxns, error: mfError },
-      { data: fundMaster, error: fundMasterError },
-    ] = await Promise.all([
+    const priceTable = priceSource === 'stock_mapping' ? 'stock_mapping' : 'stock_master';
+    console.log(`[Analysis] getAnalysisSummary using priceSource: "${priceSource}", table: "${priceTable}"`);
+    
+    const fetchPromises = [
       fetchAllRows(supabase, 'stock_transactions', {
         select: 'stock_name, quantity, buy_price, buy_date, sell_date, sell_price, account_name, account_type, equity_type',
         filters: userId !== 'all' ? [(q) => q.in('account_name', Array.isArray(userId) ? userId : [userId])] : []
       }),
       fetchAllRows(supabase, 'stock_master', {
-        select: 'stock_name, cmp, lcp, sector, category, industry, macro_sector, known_sector, basic_industry',
+        select: 'stock_name, sector, category, industry, macro_sector, known_sector, basic_industry, cmp, lcp',
       }),
+      fetchAllRows(supabase, priceTable !== 'stock_master' ? priceTable : null, {
+        select: 'stock_name, cmp, lcp',
+      }).catch(() => ({ data: [], error: null })),
       fetchAllRows(supabase, 'mf_transactions', {
         select: 'fund_short_name, account_name, transaction_type, date, units, nav',
         chunkSize: 2000,
@@ -556,13 +585,24 @@ export async function getAnalysisSummary(userId = 'all') {
       fetchAllRows(supabase, 'fund_master', {
         select: 'fund_short_name, cmp, lcp, category, amc_name',
       }),
-    ]);
+    ];
+
+    const [
+      { data: stockTxns, error: stockError },
+      { data: stockMaster, error: stockMasterError },
+      { data: priceData, error: priceError },
+      { data: mfTxns, error: mfError },
+      { data: fundMaster, error: fundMasterError },
+    ] = await Promise.all(fetchPromises);
 
     if (stockError) {
       console.error('[AnalysisSummary] stock_transactions fetch error:', stockError);
     }
     if (stockMasterError) {
       console.error('[AnalysisSummary] stock_master fetch error:', stockMasterError);
+    }
+    if (priceError) {
+      console.error('[AnalysisSummary] price data fetch error:', priceError);
     }
     if (mfError) {
       console.error('[AnalysisSummary] mf_transactions fetch error:', mfError);
@@ -571,9 +611,35 @@ export async function getAnalysisSummary(userId = 'all') {
       console.error('[AnalysisSummary] fund_master fetch error:', fundMasterError);
     }
 
-    const cmpMap = new Map((stockMaster || []).map((m) => [m.stock_name, toNumber(m.cmp)]));
-    const lcpMap = new Map((stockMaster || []).map((m) => [m.stock_name, toNumber(m.lcp)]));
     const stockMasterMap = new Map((stockMaster || []).map((row) => [String(row.stock_name || '').trim(), row]));
+    
+    // Build price maps with fallback logic
+    const cmpMap = new Map();
+    const lcpMap = new Map();
+    
+    // First, add price data from the selected price table (stock_mapping or stock_master CMP/LCP columns)
+    (priceData || []).forEach((m) => {
+      const stockName = String(m.stock_name || '').trim();
+      const cmp = toNumber(m.cmp);
+      const lcp = toNumber(m.lcp);
+      cmpMap.set(stockName, cmp);
+      lcpMap.set(stockName, lcp);
+    });
+    
+    // For angel one (stock_mapping), add fallback from stock_master if CMP/LCP is missing
+    if (priceTable === 'stock_mapping') {
+      stockMasterMap.forEach((row, stockName) => {
+        if (!cmpMap.get(stockName) || cmpMap.get(stockName) === 0) {
+          const cmp = toNumber(row.cmp);
+          if (cmp > 0) cmpMap.set(stockName, cmp);
+        }
+        if (!lcpMap.get(stockName) || lcpMap.get(stockName) === 0) {
+          const lcp = toNumber(row.lcp);
+          if (lcp > 0) lcpMap.set(stockName, lcp);
+        }
+      });
+    }
+    
     const fundPriceMap = new Map((fundMaster || []).map((m) => [m.fund_short_name, { cmp: toNumber(m.cmp), lcp: toNumber(m.lcp) }]));
     const fundMasterMap = new Map((fundMaster || []).map((row) => [String(row.fund_short_name || '').trim(), row]));
 
@@ -582,6 +648,9 @@ export async function getAnalysisSummary(userId = 'all') {
     }
     if (!stockMaster?.length) {
       console.warn('[AnalysisSummary] No stock_master rows returned.');
+    }
+    if (!priceData?.length) {
+      console.warn('[AnalysisSummary] No price data returned from:', priceTable);
     }
     if (!mfTxns?.length) {
       console.warn('[AnalysisSummary] No mf_transactions returned. First few rows:', mfTxns?.slice?.(0, 3));
@@ -1062,17 +1131,25 @@ const normalizeAccountTypeForFreeStocks = (accountType, accountName) => {
   return normalizedType || 'REGULAR';
 };
 
-export async function getAnalysisFreeStocks(userId = 'all') {
+export async function getAnalysisFreeStocks(userId = 'all', priceSource = 'stock_master') {
   try {
-    let [{ data: stockTxns }, { data: stockMaster }] = await Promise.all([
+    const priceTable = priceSource === 'stock_mapping' ? 'stock_mapping' : 'stock_master';
+    console.log(`[Analysis] getAnalysisFreeStocks using priceSource: "${priceSource}", table: "${priceTable}"`);
+    
+    const fetchPromises = [
       fetchAllRows(supabase, 'stock_transactions', {
         select: 'id, stock_name, quantity, buy_price, sell_date, account_name, account_type, buy_date, equity_type',
         filters: userId !== 'all' ? [(q) => q.in('account_name', Array.isArray(userId) ? userId : [userId])] : []
       }),
+      fetchAllRows(supabase, priceTable !== 'stock_master' ? priceTable : null, {
+        select: 'stock_name, cmp',
+      }).catch(() => ({ data: [], error: null })),
       fetchAllRows(supabase, 'stock_master', {
         select: 'stock_name, cmp',
       }),
-    ]);
+    ];
+    
+    let [{ data: stockTxns }, { data: priceData }, { data: stockMaster }] = await Promise.all(fetchPromises);
 
     // Re-fetch with pagination if needed
     try {
@@ -1096,7 +1173,26 @@ export async function getAnalysisFreeStocks(userId = 'all') {
       console.warn('[AnalysisFreeStocks] count check failed:', countErr);
     }
 
-    const cmpMap = new Map((stockMaster || []).map((m) => [m.stock_name, toNumber(m.cmp)]));
+    // Build CMP map with fallback logic
+    const cmpMap = new Map();
+    (priceData || []).forEach((m) => {
+      cmpMap.set(m.stock_name, toNumber(m.cmp));
+    });
+    // For angel one (stock_mapping), fallback to stock_master if CMP is missing
+    if (priceTable === 'stock_mapping') {
+      (stockMaster || []).forEach((m) => {
+        if (!cmpMap.get(m.stock_name) || cmpMap.get(m.stock_name) === 0) {
+          cmpMap.set(m.stock_name, toNumber(m.cmp));
+        }
+      });
+    } else {
+      // If we're using stock_master directly, use it for CMP
+      (stockMaster || []).forEach((m) => {
+        if (!cmpMap.get(m.stock_name)) {
+          cmpMap.set(m.stock_name, toNumber(m.cmp));
+        }
+      });
+    }
     const freeStocks = [];
     const regularStocks = [];
 

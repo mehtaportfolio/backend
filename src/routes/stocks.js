@@ -23,16 +23,18 @@ const router = express.Router();
 /**
  * GET /api/stock/open
  * Fetch open stock holdings with XIRR
+ * Query params: priceSource (stock_master|stock_mapping)
  */
 router.get('/open', authMiddleware, cacheMiddleware(5), async (req, res) => {
   try {
     const userId = req.user?.id;
+    const priceSource = req.query.priceSource || 'stock_master';
 
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const data = await getOpenStockData(supabase, userId);
+    const data = await getOpenStockData(supabase, userId, priceSource);
     res.json(data);
   } catch (error) {
     console.error('[Stock API] Error fetching open stock data:', error);
@@ -45,16 +47,18 @@ router.get('/open', authMiddleware, cacheMiddleware(5), async (req, res) => {
 /**
  * GET /api/stock/closed
  * Fetch closed stock holdings
+ * Query params: priceSource (stock_master|stock_mapping)
  */
 router.get('/closed', authMiddleware, cacheMiddleware(5), async (req, res) => {
   try {
     const userId = req.user?.id;
+    const priceSource = req.query.priceSource || 'stock_master';
 
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const data = await getClosedStockData(supabase, userId);
+    const data = await getClosedStockData(supabase, userId, priceSource);
     res.json(data);
   } catch (error) {
     console.error('[Stock API] Error fetching closed stock data:', error);
@@ -67,16 +71,18 @@ router.get('/closed', authMiddleware, cacheMiddleware(5), async (req, res) => {
 /**
  * GET /api/stock/etf
  * Fetch ETF holdings
+ * Query params: priceSource (stock_master|stock_mapping)
  */
 router.get('/etf', authMiddleware, cacheMiddleware(5), async (req, res) => {
   try {
     const userId = req.user?.id;
+    const priceSource = req.query.priceSource || 'stock_master';
 
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const data = await getETFData(supabase, userId);
+    const data = await getETFData(supabase, userId, priceSource);
     res.json(data);
   } catch (error) {
     console.error('[Stock API] Error fetching ETF data:', error);
@@ -89,16 +95,18 @@ router.get('/etf', authMiddleware, cacheMiddleware(5), async (req, res) => {
 /**
  * GET /api/stock/portfolio
  * Fetch portfolio summary with account-wise breakdown
+ * Query params: priceSource (stock_master|stock_mapping)
  */
 router.get('/portfolio', authMiddleware, cacheMiddleware(5), async (req, res) => {
   try {
     const userId = req.user?.id;
+    const priceSource = req.query.priceSource || 'stock_master';
 
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const data = await getPortfolioData(supabase, userId);
+    const data = await getPortfolioData(supabase, userId, priceSource);
     res.json(data);
   } catch (error) {
     console.error('[Stock API] Error fetching portfolio data:', error);

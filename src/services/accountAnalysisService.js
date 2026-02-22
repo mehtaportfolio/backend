@@ -117,7 +117,7 @@ const buildAssetSummary = (accounts) => {
   return summary;
 };
 
-export async function getAccountAnalysis(supabase, userId) {
+export async function getAccountAnalysis(supabase, userId, priceSource = 'stock_master') {
   if (!supabase) {
     throw new Error('Supabase client is required');
   }
@@ -125,7 +125,7 @@ export async function getAccountAnalysis(supabase, userId) {
     throw new Error('User ID is required for account analysis');
   }
 
-  const data = await fetchUserAllData(supabase, userId);
+  const data = await fetchUserAllData(supabase, userId, priceSource);
 
   const { stockCmpMap, fundCmpMap, npsCmpMap } = buildCMPMaps(data);
 

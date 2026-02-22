@@ -75,7 +75,7 @@ app.post("/restart", (req, res) => {
 });
 
 // -------------------------------------------------------------
-// ✅ Dynamically import routes AFTER dotenv is loaded
+// ✅ Dynamically import routes and init functions AFTER dotenv is loaded
 const { default: dashboardRoutes } = await import('./routes/dashboard.js');
 const { default: analysisRoutes } = await import('./routes/analysis.js');
 const { default: assetsRoutes } = await import('./routes/assets.js');
@@ -83,6 +83,7 @@ const { default: stockRoutes } = await import('./routes/stocks.js');
 const { default: schemesRoutes } = await import('./routes/schemes.js');
 const { default: cacheRoutes } = await import('./routes/cache.js');
 const { default: notificationRoutes } = await import('./routes/notifications.js');
+const { initializeStockMapping } = await import('./db/initStockMapping.js');
 
 // Attach routes
 app.use('/api/dashboard', dashboardRoutes);
@@ -178,6 +179,14 @@ app.post('/sync-lcp', async (req, res) => {
 // -------------------------------------------------------------
 // Error handler middleware
 app.use(errorHandler);
+
+// Initialize stock_mapping table on startup
+try {
+  console.log('\n[Startup] Initializing stock_mapping table...');
+  await initializeStockMapping();
+} catch (err) {
+  console.error('[Startup] Error during initialization:', err);
+}
 
 // -------------------------------------------------------------
 // Start the server

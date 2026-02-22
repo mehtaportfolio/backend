@@ -49,10 +49,17 @@ function calculateXIRR(flows) {
 }
 
 /**
+ * Normalize stock name: uppercase + trim + remove extra spaces
+ */
+function normalizeStockName(name) {
+  return String(name || '').trim().toUpperCase();
+}
+
+/**
  * Get open stock holdings grouped by stock name
  */
-export async function getOpenStockData(supabase, userId) {
-  console.log(`[Stock] Fetching open stock holdings for user: ${userId}`);
+export async function getOpenStockData(supabase, userId, priceSource = 'stock_master') {
+  console.log(`[Stock] ⚡ FETCHING open stock holdings for user: ${userId}, priceSource: "${priceSource}"`);
 
   try {
     // Fetch open transactions for Free/Regular accounts
@@ -81,43 +88,132 @@ export async function getOpenStockData(supabase, userId) {
 
     if (txnError) throw txnError;
 
-    // Fetch stock master for CMP/LCP
-    const { data: masters, error: masterError } = await fetchAllRows(
+    // Determine which table to fetch from
+    const priceTable = priceSource === 'stock_mapping' ? 'stock_mapping' : 'stock_master';
+    console.log(`[Stock] 📊 Using price table: "${priceTable}" (priceSource parameter was: "${priceSource}")`);
+
+    // Fetch prices from selected source (stock_master or stock_mapping)
+    // Note: stock_mapping may not have category/sector columns, so we only select what's guaranteed
+    const priceSelect = priceTable === 'stock_mapping' 
+      ? 'stock_name, cmp, lcp'
+      : 'stock_name, cmp, lcp, category, sector';
+    
+    let { data: masters, error: masterError } = await fetchAllRows(
       supabase,
-      'stock_master',
+      priceTable,
       {
-        select: 'stock_name, cmp, lcp, category, sector',
+        select: priceSelect,
       }
     );
 
-    if (masterError) throw masterError;
+    if (masterError) {
+      console.error(`[Stock] ❌ Error fetching from ${priceTable}:`, masterError);
+      console.log(`[Stock] ⚠️  Falling back to stock_master for prices...`);
+      
+      // Fallback to stock_master if the selected table fails
+      const { data: fallbackMasters, error: fallbackError } = await fetchAllRows(
+        supabase,
+        'stock_master',
+        {
+          select: 'stock_name, cmp, lcp, category, sector',
+        }
+      );
+      
+      if (fallbackError) throw fallbackError;
+      masters = fallbackMasters;
+    }
+
+    console.log(`[Stock] Fetched ${masters?.length || 0} price entries from ${priceTable}`);
+    
+    // If we used stock_mapping, also fetch category/sector from stock_master for enrichment
+    let categoryData = [];
+    let sectorData = [];
+    if (priceTable === 'stock_mapping' && !masterError) {
+      const { data: masterEnrich, error: enrichError } = await fetchAllRows(
+        supabase,
+        'stock_master',
+        {
+          select: 'stock_name, category, sector',
+        }
+      );
+      if (!enrichError && masterEnrich) {
+        categoryData = masterEnrich;
+      }
+    } else if (masters) {
+      categoryData = masters; // Already have category/sector from stock_master
+    }
+    
+    // 🔹 When using stock_mapping (Angel One), fetch stock_master data as fallback
+    let stockMasterFallbackMap = {};
+    if (priceTable === 'stock_mapping' && !masterError) {
+      const { data: masterForFallback } = await fetchAllRows(
+        supabase,
+        'stock_master',
+        { select: 'stock_name, cmp, lcp' }
+      );
+      (masterForFallback || []).forEach((m) => {
+        const normalizedKey = normalizeStockName(m.stock_name);
+        stockMasterFallbackMap[normalizedKey] = {
+          cmp: toNumber(m.cmp),
+          lcp: toNumber(m.lcp),
+        };
+      });
+    }
 
     const masterMap = {};
     const categoryMap = {};
     const sectorMap = {};
 
+    // Create maps with normalized keys to handle name mismatches
     (masters || []).forEach((m) => {
-      const stockName = String(m.stock_name).trim();
-      masterMap[stockName] = {
-        cmp: toNumber(m.cmp),
-        lcp: toNumber(m.lcp),
+      const normalizedKey = normalizeStockName(m.stock_name);
+      let cmp = toNumber(m.cmp);
+      let lcp = toNumber(m.lcp);
+      
+      // 🔹 Fallback: If stock_mapping CMP or LCP is missing/invalid, use stock_master values
+      if (priceTable === 'stock_mapping') {
+        const fallback = stockMasterFallbackMap[normalizedKey];
+        if ((!cmp || cmp === 0) && fallback?.cmp) {
+          console.log(`[Stock Open] Using fallback CMP for ${m.stock_name}: ${fallback.cmp}`);
+          cmp = fallback.cmp;
+        }
+        if ((!lcp || lcp === 0) && fallback?.lcp) {
+          console.log(`[Stock Open] Using fallback LCP for ${m.stock_name}: ${fallback.lcp}`);
+          lcp = fallback.lcp;
+        }
+      }
+      
+      masterMap[normalizedKey] = {
+        cmp: cmp,
+        lcp: lcp,
       };
-      if (m.category) categoryMap[stockName] = m.category;
-      if (m.sector) sectorMap[stockName] = m.sector;
+      
+      // Log AARTIIND specifically for debugging
+      if (m.stock_name && m.stock_name.includes('AARTI')) {
+        console.log(`[Stock] Found AARTI stock in ${priceTable}: "${m.stock_name}" -> normalized: "${normalizedKey}", CMP: ${m.cmp}, LCP: ${lcp}`);
+      }
+    });
+    
+    // Populate category and sector maps
+    (categoryData || []).forEach((m) => {
+      const normalizedKey = normalizeStockName(m.stock_name);
+      if (m.category) categoryMap[normalizedKey] = m.category;
+      if (m.sector) sectorMap[normalizedKey] = m.sector;
     });
 
-    // Group by stock name
+    // Group by stock name, with normalized lookup
     const grouped = {};
     (filteredTransactions || []).forEach((txn) => {
       const stockName = String(txn.stock_name).trim();
+      const normalizedKey = normalizeStockName(txn.stock_name);
       if (!grouped[stockName]) {
         grouped[stockName] = {
           stock_name: stockName,
           transactions: [],
-          cmp: masterMap[stockName]?.cmp || 0,
-          lcp: masterMap[stockName]?.lcp || 0,
-          category: categoryMap[stockName] || null,
-          sector: sectorMap[stockName] || null,
+          cmp: masterMap[normalizedKey]?.cmp || 0,
+          lcp: masterMap[normalizedKey]?.lcp || 0,
+          category: categoryMap[normalizedKey] || null,
+          sector: sectorMap[normalizedKey] || null,
         };
       }
       grouped[stockName].transactions.push(txn);
@@ -232,8 +328,8 @@ export async function getOpenStockData(supabase, userId) {
 /**
  * Get closed stock holdings
  */
-export async function getClosedStockData(supabase, userId) {
-  console.log(`[Stock] Fetching closed stock holdings for user: ${userId}`);
+export async function getClosedStockData(supabase, userId, priceSource = 'stock_master') {
+  console.log(`[Stock] Fetching closed stock holdings for user: ${userId}, priceSource: ${priceSource}`);
 
   try {
     // Fetch closed transactions
@@ -251,23 +347,74 @@ export async function getClosedStockData(supabase, userId) {
 
     if (txnError) throw txnError;
 
-    // Fetch stock master
-    const { data: masters, error: masterError } = await fetchAllRows(
+    // Determine which table to fetch from
+    const priceTable = priceSource === 'stock_mapping' ? 'stock_mapping' : 'stock_master';
+    console.log(`[Stock] Using price table for closed: ${priceTable}`);
+
+    // Fetch prices from selected source
+    let { data: masters, error: masterError } = await fetchAllRows(
       supabase,
-      'stock_master',
+      priceTable,
       {
         select: 'stock_name, cmp, lcp',
       }
     );
 
-    if (masterError) throw masterError;
+    if (masterError) {
+      console.error(`[Stock] Error fetching from ${priceTable}:`, masterError);
+      console.log(`[Stock] Falling back to stock_master for closed...`);
+      
+      const { data: fallbackMasters, error: fallbackError } = await fetchAllRows(
+        supabase,
+        'stock_master',
+        {
+          select: 'stock_name, cmp, lcp',
+        }
+      );
+      
+      if (fallbackError) throw fallbackError;
+      masters = fallbackMasters;
+    }
+
+    // 🔹 When using stock_mapping (Angel One), fetch stock_master data as fallback
+    let stockMasterFallbackMapClosed = {};
+    if (priceTable === 'stock_mapping' && !masterError) {
+      const { data: masterForFallback } = await fetchAllRows(
+        supabase,
+        'stock_master',
+        { select: 'stock_name, cmp, lcp' }
+      );
+      (masterForFallback || []).forEach((m) => {
+        const normalizedKey = normalizeStockName(m.stock_name);
+        stockMasterFallbackMapClosed[normalizedKey] = {
+          cmp: toNumber(m.cmp),
+          lcp: toNumber(m.lcp),
+        };
+      });
+    }
 
     const masterMap = {};
     (masters || []).forEach((m) => {
-      const stockName = String(m.stock_name).trim();
-      masterMap[stockName] = {
-        cmp: toNumber(m.cmp),
-        lcp: toNumber(m.lcp),
+      const normalizedKey = normalizeStockName(m.stock_name);
+      let cmp = toNumber(m.cmp);
+      let lcp = toNumber(m.lcp);
+      
+      // 🔹 Fallback: If stock_mapping CMP or LCP is missing/invalid, use stock_master values
+      if (priceTable === 'stock_mapping') {
+        const fallback = stockMasterFallbackMapClosed[normalizedKey];
+        if ((!cmp || cmp === 0) && fallback?.cmp) {
+          console.log(`[Stock Closed] Using fallback CMP for ${m.stock_name}: ${fallback.cmp}`);
+          cmp = fallback.cmp;
+        }
+        if ((!lcp || lcp === 0) && fallback?.lcp) {
+          console.log(`[Stock Closed] Using fallback LCP for ${m.stock_name}: ${fallback.lcp}`);
+          lcp = fallback.lcp;
+        }
+      }
+      
+      masterMap[normalizedKey] = {
+        cmp: cmp,
+        lcp: lcp,
       };
     });
 
@@ -275,12 +422,13 @@ export async function getClosedStockData(supabase, userId) {
     const grouped = {};
     (transactions || []).forEach((txn) => {
       const stockName = String(txn.stock_name).trim();
+      const normalizedKey = normalizeStockName(txn.stock_name);
       if (!grouped[stockName]) {
         grouped[stockName] = {
           stock_name: stockName,
           transactions: [],
-          cmp: masterMap[stockName]?.cmp || 0,
-          lcp: masterMap[stockName]?.lcp || 0,
+          cmp: masterMap[normalizedKey]?.cmp || 0,
+          lcp: masterMap[normalizedKey]?.lcp || 0,
         };
       }
       grouped[stockName].transactions.push(txn);
@@ -349,8 +497,8 @@ export async function getClosedStockData(supabase, userId) {
 /**
  * Get ETF holdings
  */
-export async function getETFData(supabase, userId) {
-  console.log(`[Stock] Fetching ETF data for user: ${userId}`);
+export async function getETFData(supabase, userId, priceSource = 'stock_master') {
+  console.log(`[Stock] Fetching ETF data for user: ${userId}, priceSource: ${priceSource}`);
 
   try {
     const { data: transactions, error: txnError } = await fetchAllRows(
@@ -369,23 +517,74 @@ export async function getETFData(supabase, userId) {
 
     if (txnError) throw txnError;
 
-    // Fetch stock master
-    const { data: masters, error: masterError } = await fetchAllRows(
+    // Determine which table to fetch from
+    const priceTable = priceSource === 'stock_mapping' ? 'stock_mapping' : 'stock_master';
+    console.log(`[Stock] Using price table for ETF: ${priceTable}`);
+
+    // Fetch prices from selected source
+    let { data: masters, error: masterError } = await fetchAllRows(
       supabase,
-      'stock_master',
+      priceTable,
       {
         select: 'stock_name, cmp, lcp',
       }
     );
 
-    if (masterError) throw masterError;
+    if (masterError) {
+      console.error(`[Stock] Error fetching from ${priceTable}:`, masterError);
+      console.log(`[Stock] Falling back to stock_master for ETF...`);
+      
+      const { data: fallbackMasters, error: fallbackError } = await fetchAllRows(
+        supabase,
+        'stock_master',
+        {
+          select: 'stock_name, cmp, lcp',
+        }
+      );
+      
+      if (fallbackError) throw fallbackError;
+      masters = fallbackMasters;
+    }
+
+    // 🔹 When using stock_mapping (Angel One), fetch stock_master data as fallback
+    let stockMasterFallbackMapETF = {};
+    if (priceTable === 'stock_mapping' && !masterError) {
+      const { data: masterForFallback } = await fetchAllRows(
+        supabase,
+        'stock_master',
+        { select: 'stock_name, cmp, lcp' }
+      );
+      (masterForFallback || []).forEach((m) => {
+        const normalizedKey = normalizeStockName(m.stock_name);
+        stockMasterFallbackMapETF[normalizedKey] = {
+          cmp: toNumber(m.cmp),
+          lcp: toNumber(m.lcp),
+        };
+      });
+    }
 
     const masterMap = {};
     (masters || []).forEach((m) => {
-      const stockName = String(m.stock_name).trim();
-      masterMap[stockName] = {
-        cmp: toNumber(m.cmp),
-        lcp: toNumber(m.lcp),
+      const normalizedKey = normalizeStockName(m.stock_name);
+      let cmp = toNumber(m.cmp);
+      let lcp = toNumber(m.lcp);
+      
+      // 🔹 Fallback: If stock_mapping CMP or LCP is missing/invalid, use stock_master values
+      if (priceTable === 'stock_mapping') {
+        const fallback = stockMasterFallbackMapETF[normalizedKey];
+        if ((!cmp || cmp === 0) && fallback?.cmp) {
+          console.log(`[Stock ETF] Using fallback CMP for ${m.stock_name}: ${fallback.cmp}`);
+          cmp = fallback.cmp;
+        }
+        if ((!lcp || lcp === 0) && fallback?.lcp) {
+          console.log(`[Stock ETF] Using fallback LCP for ${m.stock_name}: ${fallback.lcp}`);
+          lcp = fallback.lcp;
+        }
+      }
+      
+      masterMap[normalizedKey] = {
+        cmp: cmp,
+        lcp: lcp,
       };
     });
 
@@ -393,12 +592,13 @@ export async function getETFData(supabase, userId) {
     const grouped = {};
     (etfTransactions || []).forEach((txn) => {
       const stockName = String(txn.stock_name).trim();
+      const normalizedKey = normalizeStockName(txn.stock_name);
       if (!grouped[stockName]) {
         grouped[stockName] = {
           stock_name: stockName,
           transactions: [],
-          cmp: masterMap[stockName]?.cmp || 0,
-          lcp: masterMap[stockName]?.lcp || 0,
+          cmp: masterMap[normalizedKey]?.cmp || 0,
+          lcp: masterMap[normalizedKey]?.lcp || 0,
         };
       }
       grouped[stockName].transactions.push(txn);
@@ -499,10 +699,18 @@ export async function getETFData(supabase, userId) {
 /**
  * Get portfolio summary with account-wise breakdown
  */
-export async function getPortfolioData(supabase, userId) {
-  console.log(`[Stock] Fetching portfolio data for user: ${userId}`);
+export async function getPortfolioData(supabase, userId, priceSource = 'stock_master') {
+  console.log(`[Stock] Fetching portfolio data for user: ${userId}, priceSource: ${priceSource}`);
 
   try {
+    const priceTable = priceSource === 'stock_mapping' ? 'stock_mapping' : 'stock_master';
+    console.log(`[Stock] Using price table for portfolio: ${priceTable}`);
+
+    // Only select columns that are guaranteed to exist in the price table
+    const priceSelect = priceTable === 'stock_mapping' 
+      ? 'stock_name, cmp, lcp'
+      : 'stock_name, cmp, lcp, category, sector';
+
     const [
       { data: transactions, error: txnError },
       { data: masters, error: masterError },
@@ -512,24 +720,75 @@ export async function getPortfolioData(supabase, userId) {
         select:
           'id, stock_name, quantity, buy_price, buy_date, sell_date, sell_price, account_name, account_type, equity_type',
       }),
-      fetchAllRows(supabase, 'stock_master', {
-        select: 'stock_name, cmp, lcp, category, sector',
+      fetchAllRows(supabase, priceTable, {
+        select: priceSelect,
       }),
       fetchAllRows(supabase, 'equity_charges', {
         select: 'account_name, year, fy, other_charges, dp_charges',
       }),
     ]);
 
-    if (txnError || masterError || chargesError) {
+    // Fallback to stock_master if the selected table fails
+    let finalMasters = masters;
+    if (masterError) {
+      console.error(`[Stock] Error fetching from ${priceTable}:`, masterError);
+      console.log(`[Stock] Falling back to stock_master for portfolio...`);
+      
+      const { data: fallbackMasters, error: fallbackError } = await fetchAllRows(
+        supabase,
+        'stock_master',
+        {
+          select: 'stock_name, cmp, lcp, category, sector',
+        }
+      );
+      
+      if (fallbackError) throw fallbackError;
+      finalMasters = fallbackMasters;
+    }
+
+    if (txnError || chargesError) {
       throw new Error('Failed to fetch portfolio data');
     }
 
+    // 🔹 When using stock_mapping (Angel One), fetch stock_master data as fallback
+    let stockMasterFallbackMapPortfolio = {};
+    if (priceTable === 'stock_mapping' && !masterError) {
+      const { data: masterForFallback } = await fetchAllRows(
+        supabase,
+        'stock_master',
+        { select: 'stock_name, cmp, lcp' }
+      );
+      (masterForFallback || []).forEach((m) => {
+        const normalizedKey = normalizeStockName(m.stock_name);
+        stockMasterFallbackMapPortfolio[normalizedKey] = {
+          cmp: toNumber(m.cmp),
+          lcp: toNumber(m.lcp),
+        };
+      });
+    }
+
     const masterMap = {};
-    (masters || []).forEach((m) => {
-      const stockName = String(m.stock_name).trim();
-      masterMap[stockName] = {
-        cmp: toNumber(m.cmp),
-        lcp: toNumber(m.lcp),
+    (finalMasters || []).forEach((m) => {
+      const normalizedKey = normalizeStockName(m.stock_name);
+      let cmp = toNumber(m.cmp);
+      let lcp = toNumber(m.lcp);
+      
+      // 🔹 Fallback: If stock_mapping CMP or LCP is missing/invalid, use stock_master values
+      if (priceTable === 'stock_mapping') {
+        const fallback = stockMasterFallbackMapPortfolio[normalizedKey];
+        if ((!cmp || cmp === 0) && fallback?.cmp) {
+          console.log(`[Stock Portfolio] Using fallback CMP for ${m.stock_name}: ${fallback.cmp}`);
+          cmp = fallback.cmp;
+        }
+        if ((!lcp || lcp === 0) && fallback?.lcp) {
+          console.log(`[Stock Portfolio] Using fallback LCP for ${m.stock_name}: ${fallback.lcp}`);
+          lcp = fallback.lcp;
+        }
+      }
+      
+      masterMap[normalizedKey] = {
+        cmp: cmp,
+        lcp: lcp,
         category: m.category,
         sector: m.sector,
       };
@@ -547,8 +806,9 @@ export async function getPortfolioData(supabase, userId) {
     openTxns.forEach((txn) => {
       const qty = toNumber(txn.quantity);
       const buyPrice = toNumber(txn.buy_price);
-      const cmp = masterMap[String(txn.stock_name).trim()]?.cmp || 0;
-      const lcp = masterMap[String(txn.stock_name).trim()]?.lcp || 0;
+      const normalizedKey = normalizeStockName(txn.stock_name);
+      const cmp = masterMap[normalizedKey]?.cmp || 0;
+      const lcp = masterMap[normalizedKey]?.lcp || 0;
 
       const investment = qty * buyPrice;
       openInvested += investment;
@@ -586,14 +846,15 @@ export async function getPortfolioData(supabase, userId) {
       }
 
       if (!acc[stockName]) {
+        const normalizedKey = normalizeStockName(txn.stock_name);
         acc[stockName] = {
           stock_name: stockName,
           quantity: 0,
           invested: 0,
           currentValue: 0,
           dayChange: 0,
-          cmp: masterMap[stockName]?.cmp || 0,
-          lcp: masterMap[stockName]?.lcp || 0,
+          cmp: masterMap[normalizedKey]?.cmp || 0,
+          lcp: masterMap[normalizedKey]?.lcp || 0,
         };
       }
 

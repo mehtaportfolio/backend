@@ -13,7 +13,11 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANO
 router.get('/dashboard', cacheMiddleware(ANALYSIS_CACHE_TTL), async (req, res, next) => {
   try {
     const userId = req.userId || req.query.userId || ['PM', 'PDM', 'PSM', 'BDM'];
-    const data = await getAnalysisDashboard(userId);
+    const priceSource = req.query.priceSource || 'stock_master';
+    
+    console.log(`[Analysis Route] Dashboard requested with priceSource: "${priceSource}"`);
+    
+    const data = await getAnalysisDashboard(userId, priceSource);
     res.json(data);
   } catch (error) {
     next(error);
@@ -23,7 +27,9 @@ router.get('/dashboard', cacheMiddleware(ANALYSIS_CACHE_TTL), async (req, res, n
 router.get('/account-dashboard', cacheMiddleware(ANALYSIS_CACHE_TTL), async (req, res, next) => {
   try {
     const userId = req.userId || req.query.userId || ['PM', 'PDM', 'PSM', 'BDM'];
-    const data = await getAccountAnalysis(supabase, userId);
+    const priceSource = req.query.priceSource || 'stock_master';
+    
+    const data = await getAccountAnalysis(supabase, userId, priceSource);
     res.json({
       success: true,
       data,
@@ -38,7 +44,9 @@ router.get('/account-dashboard', cacheMiddleware(ANALYSIS_CACHE_TTL), async (req
 router.get('/summary', cacheMiddleware(ANALYSIS_CACHE_TTL), async (req, res, next) => {
   try {
     const userId = req.userId || req.query.userId || ['PM', 'PDM', 'PSM', 'BDM'];
-    const data = await getAnalysisSummary(userId);
+    const priceSource = req.query.priceSource || 'stock_master';
+    
+    const data = await getAnalysisSummary(userId, priceSource);
     res.json(data);
   } catch (error) {
     next(error);
@@ -49,7 +57,9 @@ router.get('/summary', cacheMiddleware(ANALYSIS_CACHE_TTL), async (req, res, nex
 router.get('/free-stocks', cacheMiddleware(ANALYSIS_CACHE_TTL), async (req, res, next) => {
   try {
     const userId = req.userId || req.query.userId || ['PM', 'PDM', 'PSM', 'BDM'];
-    const data = await getAnalysisFreeStocks(userId);
+    const priceSource = req.query.priceSource || 'stock_master';
+    
+    const data = await getAnalysisFreeStocks(userId, priceSource);
     res.json(data);
   } catch (error) {
     next(error);

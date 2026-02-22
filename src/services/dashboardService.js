@@ -32,7 +32,12 @@ export function buildCMPMaps(data) {
   const npsCmpMap = new Map();
   const npsLcpMap = new Map();
 
-  (data.stock_master?.data || []).forEach((m) => {
+  // Use stock_mapping if available (Angel One), otherwise fall back to stock_master
+  const stockData = data.stock_mapping?.data || data.stock_master?.data || [];
+  const priceSource = data.stock_mapping?.data ? 'stock_mapping' : 'stock_master';
+  console.log(`[buildCMPMaps] Using stock price data from: "${priceSource}"`);
+
+  (stockData).forEach((m) => {
     stockCmpMap.set(String(m.stock_name).trim(), toNumber(m.cmp));
     stockLcpMap.set(String(m.stock_name).trim(), toNumber(m.lcp));
   });
@@ -54,13 +59,15 @@ export function buildCMPMaps(data) {
  * Compute dashboard asset allocation
  * @param {SupabaseClient} supabase - Supabase client
  * @param {string} userId - User ID
+ * @param {string} priceSource - Price source ('stock_master' or 'stock_mapping')
  * @returns {Promise<object>} - Asset allocation data
  */
-export async function getDashboardAssetAllocation(supabase, userId) {
+export async function getDashboardAssetAllocation(supabase, userId, priceSource = 'stock_master') {
 
   try {
+    console.log(`[Dashboard] Computing asset allocation with priceSource: "${priceSource}"`);
     // Fetch all user data in parallel
-    const data = await fetchUserAllData(supabase, userId);
+    const data = await fetchUserAllData(supabase, userId, priceSource);
 
     // Check for errors
     const hasErrors = Object.values(data).some((result) => result.error);
@@ -241,8 +248,8 @@ export async function getDashboardAssetAllocation(supabase, userId) {
 /**
  * Get dashboard summary (quick overview)
  */
-export async function getDashboardSummary(supabase, userId) {
-  const allocation = await getDashboardAssetAllocation(supabase, userId);
+export async function getDashboardSummary(supabase, userId, priceSource = 'stock_master') {
+  const allocation = await getDashboardAssetAllocation(supabase, userId, priceSource);
   return allocation.summary;
 }
 

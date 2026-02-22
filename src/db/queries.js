@@ -111,12 +111,17 @@ export async function batchFetchTables(supabase, queries) {
  * Fetch specific user's data
  * @param {SupabaseClient} supabase - Supabase client
  * @param {string} userId - User ID
+ * @param {string} priceSource - Price source ('stock_master' or 'stock_mapping')
  * @returns {Promise<object>} - All user's data tables
  */
-export async function fetchUserAllData(supabase, userId) {
+export async function fetchUserAllData(supabase, userId, priceSource = 'stock_master') {
   if (!userId) {
     throw new Error('User ID is required');
   }
+
+  // Determine price table based on priceSource
+  const priceTable = priceSource === 'stock_mapping' ? 'stock_mapping' : 'stock_master';
+  console.log(`[fetchUserAllData] Using price table: "${priceTable}" (priceSource: "${priceSource}")`);
 
   // Support array of userIds
   const userIdArray = Array.isArray(userId) ? userId : [userId];
@@ -130,7 +135,7 @@ export async function fetchUserAllData(supabase, userId) {
       select: 'stock_name, quantity, buy_price, sell_date, account_type, buy_date, account_name, equity_type',
       filters: [filterFn]
     },
-    stock_master: {
+    [priceTable]: {
       select: 'stock_name, cmp, lcp',
     },
     mf_transactions: {
@@ -165,7 +170,59 @@ export async function fetchUserAllData(supabase, userId) {
     },
   };
 
-  return batchFetchTables(supabase, queries);
+  // If using stock_mapping, also fetch stock_master for fallback
+  if (priceTable === 'stock_mapping') {
+    queries.stock_master = {
+      select: 'stock_name, cmp, lcp',
+    };
+  }
+
+  const result = await batchFetchTables(supabase, queries);
+
+  // Merge stock_master as fallback for stock_mapping
+  if (priceTable === 'stock_mapping' && result.stock_mapping?.data && result.stock_master?.data) {
+    const mappingMap = new Map();
+    const masterMap = new Map();
+
+    (result.stock_mapping.data || []).forEach(stock => {
+      const normalizedKey = String(stock.stock_name).trim().toUpperCase();
+      mappingMap.set(normalizedKey, stock);
+    });
+
+    (result.stock_master.data || []).forEach(stock => {
+      const normalizedKey = String(stock.stock_name).trim().toUpperCase();
+      masterMap.set(normalizedKey, stock);
+    });
+
+    const mergedData = [];
+    const processedKeys = new Set();
+
+    mappingMap.forEach((stock, normalizedKey) => {
+      const cmp = stock.cmp && stock.cmp !== 0 ? stock.cmp : masterMap.get(normalizedKey)?.cmp;
+      const lcp = stock.lcp && stock.lcp !== 0 ? stock.lcp : masterMap.get(normalizedKey)?.lcp;
+
+      mergedData.push({
+        stock_name: stock.stock_name,
+        cmp: cmp || 0,
+        lcp: lcp || 0,
+      });
+      processedKeys.add(normalizedKey);
+    });
+
+    masterMap.forEach((stock, normalizedKey) => {
+      if (!processedKeys.has(normalizedKey)) {
+        mergedData.push({
+          stock_name: stock.stock_name,
+          cmp: stock.cmp || 0,
+          lcp: stock.lcp || 0,
+        });
+      }
+    });
+
+    result.stock_mapping = { data: mergedData, error: null };
+  }
+
+  return result;
 }
 
 export default { fetchAllRows, batchFetchTables, fetchUserAllData };

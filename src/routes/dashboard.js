@@ -22,6 +22,9 @@ const CACHE_TTL = parseInt(process.env.CACHE_TTL_DASHBOARD || '5', 10);
 /**
  * GET /api/dashboard/asset-allocation
  * Returns asset-wise breakdown with allocations and P&L
+ * Query params:
+ *   - userId: User ID (default: primary accounts)
+ *   - priceSource: 'stock_master' or 'stock_mapping' (default: 'stock_master')
  */
 router.get(
   '/asset-allocation',
@@ -30,8 +33,11 @@ router.get(
     try {
       // Use the primary accounts by default to match notification/portfolio logic
       const userId = req.userId || req.query.userId || ['PM', 'PDM', 'PSM', 'BDM'];
+      const priceSource = req.query.priceSource || 'stock_master';
 
-      const result = await getDashboardAssetAllocation(supabase, userId);
+      console.log(`[Dashboard Route] Fetching with priceSource: "${priceSource}"`);
+
+      const result = await getDashboardAssetAllocation(supabase, userId, priceSource);
 
       res.json({
         success: true,
@@ -47,6 +53,9 @@ router.get(
 /**
  * GET /api/dashboard/summary
  * Returns quick portfolio summary
+ * Query params:
+ *   - userId: User ID (default: primary accounts)
+ *   - priceSource: 'stock_master' or 'stock_mapping' (default: 'stock_master')
  */
 router.get(
   '/summary',
@@ -54,8 +63,9 @@ router.get(
   async (req, res, next) => {
     try {
       const userId = req.userId || req.query.userId || ['PM', 'PDM', 'PSM', 'BDM'];
+      const priceSource = req.query.priceSource || 'stock_master';
 
-      const summary = await getDashboardSummary(supabase, userId);
+      const summary = await getDashboardSummary(supabase, userId, priceSource);
 
       res.json({
         success: true,
