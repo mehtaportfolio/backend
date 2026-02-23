@@ -83,6 +83,7 @@ const { default: stockRoutes } = await import('./routes/stocks.js');
 const { default: schemesRoutes } = await import('./routes/schemes.js');
 const { default: cacheRoutes } = await import('./routes/cache.js');
 const { default: notificationRoutes } = await import('./routes/notifications.js');
+const { sendAngelOneStatusNotification } = await import('./services/notificationService.js');
 const { initializeStockMapping } = await import('./db/initStockMapping.js');
 
 // Attach routes
@@ -93,6 +94,20 @@ app.use('/api/stock', stockRoutes);
 app.use('/api/schemes', schemesRoutes);
 app.use('/api/cache', cacheRoutes);
 app.use('/api/notifications', notificationRoutes);
+
+// ✅ Add Angel One status route
+app.post('/api/angel-one-status', async (req, res, next) => {
+  try {
+    const { success, message, timestamp, authenticated } = req.body;
+    console.log(`[Status Received] Success: ${success}, Message: ${message}`);
+    
+    await sendAngelOneStatusNotification({ success, message, timestamp, authenticated });
+    
+    res.json({ status: 'success', message: 'Notification sent' });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // 🔹 Proxy endpoints for Angel One services
 app.get('/refresh-stocks', async (req, res) => {

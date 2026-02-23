@@ -160,3 +160,27 @@ export async function triggerPortfolioUpdate(force = false) {
     throw err;
   }
 }
+
+/**
+ * Send a notification about the Angel One login status
+ * @param {object} statusData
+ */
+export async function sendAngelOneStatusNotification({ success, message, timestamp, authenticated }) {
+  try {
+    const payload = {
+      title: success ? 'Angel One ✅ SUCCESS' : 'Angel One ❌ FAILURE',
+      body: `${message}\nTime: ${timestamp}\nAuthenticated: ${authenticated ? 'Yes' : 'No'}`,
+      icon: '/mainphoto.png',
+      badge: '/logo192.png',
+      data: {
+        url: '/'
+      }
+    };
+
+    await sendPushNotification(payload);
+    return { status: 'sent', data: payload };
+  } catch (err) {
+    console.error('Error sending Angel One status notification:', err);
+    throw err;
+  }
+}
