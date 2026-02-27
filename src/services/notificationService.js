@@ -48,27 +48,30 @@ export async function sendPushNotification(payload) {
   try {
     const { data: subscriptions, error } = await supabase
       .from('push_subscriptions')
-      .select('subscription');
+      .select('id, subscription');
 
     if (error) throw error;
     if (!subscriptions || subscriptions.length === 0) {
+      console.log('[Notification] No subscribers found');
       return;
     }
 
+    console.log(`[Notification] Sending to ${subscriptions.length} subscribers`);
     const notificationPayload = JSON.stringify(payload);
 
     const sendPromises = subscriptions.map((sub) => 
       webpush.sendNotification(sub.subscription, notificationPayload)
         .catch(err => {
           if (err.statusCode === 410 || err.statusCode === 404) {
-            // Subscription expired or no longer valid
-            return supabase.from('push_subscriptions').delete().match({ subscription: sub.subscription });
+            console.log(`[Notification] Deleting expired subscription ${sub.id}`);
+            return supabase.from('push_subscriptions').delete().eq('id', sub.id);
           }
-          console.error('Error sending push notification:', err);
+          console.error(`[Notification] Error sending to sub ${sub.id}:`, err);
         })
     );
 
     await Promise.all(sendPromises);
+    console.log('[Notification] Push batch complete');
   } catch (err) {
     console.error('Error in sendPushNotification:', err);
   }
@@ -79,7 +82,10 @@ export async function sendPushNotification(payload) {
  * @param {boolean} force - Skip market hours check if true
  */
 export async function triggerPortfolioUpdate(force = false) {
-  if (!force && !isMarketHours()) {
+  const marketHours = isMarketHours();
+  console.log(`[Notification] Triggered (force=${force}, isMarketHours=${marketHours})`);
+
+  if (!force && !marketHours) {
     return { status: 'skipped', reason: 'outside_market_hours' };
   }
 
